@@ -21,30 +21,30 @@ public class NeoflixApp {
         var port = AppUtils.getServerPort();
 
         var gson = GsonUtils.gson();
+        // Initialize the Javalin server with API endpoints
         var server = Javalin
             .create(config -> {
-                config.addStaticFiles("/", Location.CLASSPATH);
-                config.addStaticFiles(staticFiles -> {
-                    staticFiles.hostedPath = "/";
+                config.staticFiles.add(staticFiles -> {
                     staticFiles.directory = "/public";
                     staticFiles.location = Location.CLASSPATH;
                 });
-            })
-            .before(ctx -> AppUtils.handleAuthAndSetUser(ctx.req, jwtSecret))
-            .routes(() -> {
-                path("/api", () -> {
-                    path("/movies", new MovieRoutes(driver, gson));
-                    path("/genres", new GenreRoutes(driver, gson));
-                    path("/auth", new AuthRoutes(driver, gson, jwtSecret));
-                    path("/account", new AccountRoutes(driver, gson));
-                    path("/people", new PeopleRoutes(driver, gson));
+                config.router.apiBuilder(() -> {
+                    path("api", () -> {
+                        path("movies", () -> new MovieRoutes(driver, gson).addEndpoints());
+                        path("genres", () -> new GenreRoutes(driver, gson).addEndpoints());
+                        path("auth", () -> new AuthRoutes(driver, gson, jwtSecret).addEndpoints());
+                        path("account", () -> new AccountRoutes(driver, gson).addEndpoints());
+                        path("people", () -> new PeopleRoutes(driver, gson).addEndpoints());
+                    });
                 });
             })
+            .before(ctx -> AppUtils.handleAuthAndSetUser(ctx.req(), jwtSecret))
             .exception(ValidationException.class, (exception, ctx) -> {
                 var body = Map.of("message", exception.getMessage(), "details", exception.getDetails());
                 ctx.status(422).contentType("application/json").result(gson.toJson(body));
-            })
-            .start(port);
+            });
+
+        server.start(port);
         System.out.printf("Server listening on http://localhost:%d/%n", port);
     }
 }

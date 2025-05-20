@@ -54,11 +54,16 @@ class _13_ListingRatingsTest {
         assertNotEquals(first, last);
 
         System.out.println("""
-
                 Here is the answer to the quiz question on the lesson:
                 What is the name of the first person to rate the movie Pulp Fiction?
                 Copy and paste the following answer into the text box:
                 """);
-        System.out.println(((Map)first.get(0).get("user")).get("name"));
+        Object userObj = first.get(0).get("user");
+        if (userObj instanceof Map<?, ?> userMap) {
+            Object name = userMap.get("name");
+            System.out.println(name);
+        } else {
+            System.out.println("User is not a map.");
+        }
     }
 }

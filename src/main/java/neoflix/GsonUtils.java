@@ -10,7 +10,7 @@ import java.util.List;
 public class GsonUtils {
     public static Gson gson() {
         try {
-            Class type = Class.forName("java.util.Collections$EmptyList");
+            Class<?> type = Class.forName("java.util.Collections$EmptyList");
             GsonBuilder gsonBuilder = new GsonBuilder()
             .registerTypeAdapter(LocalDate.class, new LocalDateSerializer())
             .setNumberToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
@@ -30,10 +30,9 @@ public class GsonUtils {
             return new JsonPrimitive(formatter.format(localDate));
         }
     }
-    static class EmptyListSerializer implements JsonSerializer<List> {
-
+    static class EmptyListSerializer implements JsonSerializer<List<?>> {
         @Override
-        public JsonElement serialize(List list, Type srcType, JsonSerializationContext context) {
+        public JsonElement serialize(List<?> list, Type srcType, JsonSerializationContext context) {
             return new JsonArray(0);
         }
     }

@@ -1,14 +1,11 @@
 package neoflix.services;
 
 import neoflix.AppUtils;
-import neoflix.NeoflixApp;
 import neoflix.Params;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.Transaction;
 import org.neo4j.driver.TransactionContext;
 import org.neo4j.driver.Values;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 

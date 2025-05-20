@@ -7,7 +7,6 @@ import org.neo4j.driver.summary.ResultSummary;
 import org.neo4j.driver.summary.SummaryCounters;
 import org.neo4j.driver.types.*;
 
-import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -31,7 +30,7 @@ public class Results {
 
             // tag::run[]
             // Execute a query within a read transaction
-            Result res = session.readTransaction(tx -> tx.run("""
+            Result res = session.executeRead(tx -> tx.run("""
                             MATCH path = (person:Person)-[actedIn:ACTED_IN]->(movie:Movie)
                             RETURN path, person, actedIn, movie,
                                    size ( (person)-[:ACTED]->() ) as movieCount,
@@ -110,11 +109,11 @@ public class Results {
             // tag::rel[]
             var actedIn = row.get("actedIn").asRelationship();
 
-            var relId = actedIn.id(); // (1)
+            var relId = actedIn.elementId(); // (1)
             String type = actedIn.type(); // (2)
             var relProperties = actedIn.asMap(); // (3)
-            var startId = actedIn.startNodeId(); // (4)
-            var endId = actedIn.endNodeId(); // (5)
+            var startId = actedIn.startNodeElementId(); // (4)
+            var endId = actedIn.endNodeElementId(); // (5)
             // end::rel[]
 
             // Working with Paths

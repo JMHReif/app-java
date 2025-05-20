@@ -21,8 +21,8 @@ public record Params(String query, Sort sort, Order order, int limit, int skip) 
         }
     }
 
-    public enum Sort { /* Movie */
-        title, released, imdbRating, score,
+    public enum Sort { 
+        /* Movie */ title, released, imdbRating, score,
         /* Person */ name, born, movieCount,
         /* */ rating, timestamp;
 

@@ -8,7 +8,6 @@ import org.neo4j.driver.Driver;
 import org.neo4j.driver.Values;
 import org.neo4j.driver.exceptions.NoSuchRecordException;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 

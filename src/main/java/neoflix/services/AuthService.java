@@ -10,8 +10,6 @@ import org.neo4j.driver.exceptions.NoSuchRecordException;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
 
 public class AuthService {
 

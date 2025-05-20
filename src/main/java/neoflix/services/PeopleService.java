@@ -1,12 +1,10 @@
 package neoflix.services;
 
 import neoflix.AppUtils;
-import neoflix.AuthUtils;
 import neoflix.Params;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Values;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 

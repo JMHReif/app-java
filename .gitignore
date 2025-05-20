@@ -1,7 +1,14 @@
 main
-src/main/resources/application.properties
 node_modules
 .DS_Store
 .env
 target
+
+### Environment variables ###
+src/main/resources/application.properties
+
+### IntelliJ IDEA ###
 .idea
+
+### VS Code ###
+.vscode/
