@@ -1,12 +1,10 @@
 package neoflix.services;
 
 import neoflix.AppUtils;
-import neoflix.AuthUtils;
 import neoflix.Params;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Values;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -38,14 +36,28 @@ public class PeopleService {
      */
     // tag::all[]
     public List<Map<String,Object>> all(Params params) {
-        // TODO: Get a list of people from the database
-        if (params.query() != null) {
-            return AppUtils.process(people.stream()
-                    .filter(p -> ((String)p.get("name"))
-                            .contains(params.query()))
-                    .toList(), params);
+        // Open a new database session
+        try (var session = driver.session()) {
+            // Get a list of people from the database
+            var res = session.executeRead(tx -> {
+                String statement = String.format("""
+                        MATCH (p:Person)
+                        WHERE $q IS null OR p.name CONTAINS $q
+                        RETURN p { .* } AS person
+                        ORDER BY p.`%s` %s
+                        SKIP $skip
+                        LIMIT $limit
+                        """, params.sort(Params.Sort.name), params.order());
+                return tx.run(statement
+                            , Values.parameters("q", params.query(), "skip", params.skip(), "limit", params.limit()))
+                        .list(row -> row.get("person").asMap());
+            });
+
+            return res;
+        } catch(Exception e) {
+            e.printStackTrace();
         }
-        return AppUtils.process(people, params);
+        return List.of();
     }
     // end::all[]
 
@@ -59,9 +71,24 @@ public class PeopleService {
      */
     // tag::findById[]
     public Map<String, Object> findById(String id) {
-        // TODO: Find a user by their ID
+        // Open a new database session
+        try (var session = driver.session()) {
 
-        return people.stream().filter(p -> id.equals(p.get("tmdbId"))).findAny().get();
+            // Get a person from the database
+            var person = session.executeRead(tx -> {
+                        String query = """
+                                    MATCH (p:Person {tmdbId: $id})
+                                    RETURN p {
+                                        .*,
+                                        actedCount: count { (p)-[:ACTED_IN]->() },
+                                        directedCount: count { (p)-[:DIRECTED]->() }
+                                    } AS person
+                                """;
+                        var res = tx.run(query, Values.parameters("id", id));
+                        return res.single().get("person").asMap();
+                    });
+            return person;
+        }
     }
     // end::findById[]
 
@@ -75,9 +102,26 @@ public class PeopleService {
      */
     // tag::getSimilarPeople[]
     public List<Map<String,Object>> getSimilarPeople(String id, Params params) {
-        // TODO: Get a list of similar people to the person by their id
+        // Open a new database session
+        try (var session = driver.session()) {
 
-        return AppUtils.process(people, params);
+            // Get a list of similar people to the person by their id
+            var res = session.executeRead(tx -> tx.run("""
+                    MATCH (:Person {tmdbId: $id})-[:ACTED_IN|DIRECTED]->(m)<-[r:ACTED_IN|DIRECTED]-(p)
+                    RETURN p {
+                        .*,
+                        actedCount: count { (p)-[:ACTED_IN]->() },
+                        directedCount: count { (p)-[:DIRECTED]->() },
+                        inCommon: collect(m {.tmdbId, .title, type: type(r)})
+                    } AS person
+                    ORDER BY size(person.inCommon) DESC
+                    SKIP $skip
+                    LIMIT $limit
+                    """,Values.parameters("id",id, "skip", params.skip(), "limit", params.limit()))
+                    .list(row -> row.get("person").asMap()));
+
+            return res;
+        }
     }
     // end::getSimilarPeople[]
 

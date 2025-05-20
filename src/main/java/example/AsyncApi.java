@@ -2,15 +2,18 @@ package example;
 // tag::import[]
 // Import all relevant classes from neo4j-java-driver dependency
 import neoflix.AppUtils;
+
+import org.neo4j.driver.AuthTokens;
+import org.neo4j.driver.Driver;
+import org.neo4j.driver.GraphDatabase;
+
+import org.neo4j.driver.async.AsyncSession;
+
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import org.neo4j.driver.*;
-import org.neo4j.driver.reactive.RxSession;
+import org.neo4j.driver.reactivestreams.ReactiveResult;
+import org.neo4j.driver.reactivestreams.ReactiveSession;
 // end::import[]
-
-import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
 
 public class AsyncApi {
 
@@ -27,7 +30,7 @@ public class AsyncApi {
         // tag::sync[]
         try (var session = driver.session()) {
 
-            var res = session.readTransaction(tx -> tx.run(
+            var res = session.executeRead(tx -> tx.run(
                     "MATCH (p:Person) RETURN p.name AS name LIMIT 10").list());
             res.stream()
                     .map(row -> row.get("name"))
@@ -42,8 +45,8 @@ public class AsyncApi {
 
     static void asyncExample() {
         // tag::async[]
-        var session = driver.asyncSession();
-        session.readTransactionAsync(tx -> tx.runAsync(
+        var session = driver.session(AsyncSession.class);
+        session.executeReadAsync(tx -> tx.runAsync(
                         "MATCH (p:Person) RETURN p.name AS name LIMIT 10")
 
                 .thenApplyAsync(res -> res.listAsync(row -> row.get("name")))
@@ -58,17 +61,18 @@ public class AsyncApi {
 
     static void reactiveExample() {
         // tag::reactive[]
-        Flux.usingWhen(Mono.fromSupplier(driver::rxSession),
-            session -> session.readTransaction(tx -> {
-                var rxResult = tx.run(
-                        "MATCH (p:Person) RETURN p.name AS name LIMIT 10");
-                return Flux
-                    .from(rxResult.records())
-                    .map(r -> r.get("name").asString())
+        Flux<String> names = Flux.usingWhen(
+            Mono.just(driver.session(ReactiveSession.class)),
+            session -> session.executeRead(tx -> 
+                Mono.fromDirect(tx.run("MATCH (p:Person) RETURN p.name AS name LIMIT 10"))
+                    .flatMapMany(ReactiveResult::records)
+                    .map(record -> record.get("name").asString())
                     .doOnNext(System.out::println)
-                    .then(Mono.from(rxResult.consume()));
-            }
-            ), RxSession::close);
+            ),
+            session -> Mono.from(session.close())
+        );
+        // Optionally block to consume all results (for demonstration)
+        names.then().block();
         // end::reactive[]
     }
 }

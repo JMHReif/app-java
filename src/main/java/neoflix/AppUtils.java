@@ -1,6 +1,5 @@
 package neoflix;
 
-import com.google.gson.Gson;
 import org.neo4j.driver.AuthToken;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
@@ -12,9 +11,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 public class AppUtils {
     public static void loadProperties() {
@@ -45,8 +42,10 @@ public class AppUtils {
 
     // tag::initDriver[]
     static Driver initDriver() {
-        // TODO: Create and assign an instance of the driver here
-        return null;
+        AuthToken auth = AuthTokens.basic(getNeo4jUsername(), getNeo4jPassword());
+        Driver driver = GraphDatabase.driver(getNeo4jUri(), auth);
+        driver.verifyConnectivity();
+        return driver;
     }
     // end::initDriver[]
 
@@ -68,23 +67,37 @@ public class AppUtils {
         return System.getProperty("NEO4J_PASSWORD");
     }
 
-    public static List<Map<String,Object>> loadFixtureList(final String name) {
-        var fixture = new InputStreamReader(AppUtils.class.getResourceAsStream("/fixtures/" + name + ".json"));
-        return GsonUtils.gson().fromJson(fixture,List.class);
+    public static List<Map<String, Object>> loadFixtureList(final String name) {
+        try (var fixture = new InputStreamReader(AppUtils.class.getResourceAsStream("/fixtures/" + name + ".json"))) {
+            var type = new com.google.gson.reflect.TypeToken<List<Map<String, Object>>>(){}.getType();
+            return GsonUtils.gson().fromJson(fixture, type);
+        } catch (IOException e) {
+            throw new RuntimeException("Error loading fixture: " + name, e);
+        }
     }
+    
     public static List<Map<String, Object>> process(List<Map<String, Object>> result, Params params) {
         return params == null ? result : result.stream()
-                .sorted((m1, m2) ->
-                        (params.order() == Params.Order.ASC ? 1 : -1) *
-                                ((Comparable)m1.getOrDefault(params.sort().name(),"")).compareTo(
-                                        m2.getOrDefault(params.sort().name(),"")
-                                ))
+                .sorted((m1, m2) -> {
+                    Object v1 = m1.getOrDefault(params.sort().name(), "");
+                    Object v2 = m2.getOrDefault(params.sort().name(), "");
+                    if (v1 instanceof Comparable<?> c1 && v2 != null && c1.getClass().isInstance(v2)) {
+                        @SuppressWarnings("unchecked")
+                        int cmp = ((Comparable<Object>) c1).compareTo(v2);
+                        return (params.order() == Params.Order.ASC ? 1 : -1) * cmp;
+                    }
+                    return 0;
+                })
                 .skip(params.skip()).limit(params.limit())
                 .toList();
     }
 
-    public static Map<String,Object> loadFixtureSingle(final String name) {
-        var fixture = new InputStreamReader(AppUtils.class.getResourceAsStream("/fixtures/" + name + ".json"));
-        return GsonUtils.gson().fromJson(fixture,Map.class);
+    public static Map<String, Object> loadFixtureSingle(final String name) {
+        try (var fixture = new InputStreamReader(AppUtils.class.getResourceAsStream("/fixtures/" + name + ".json"))) {
+            var type = new com.google.gson.reflect.TypeToken<Map<String, Object>>(){}.getType();
+            return GsonUtils.gson().fromJson(fixture, type);
+        } catch (IOException e) {
+            throw new RuntimeException("Error loading fixture: " + name, e);
+        }
     }
 }

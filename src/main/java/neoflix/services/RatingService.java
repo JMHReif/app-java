@@ -2,9 +2,12 @@ package neoflix.services;
 
 import neoflix.AppUtils;
 import neoflix.Params;
-import org.neo4j.driver.Driver;
+import neoflix.ValidationException;
 
-import java.util.HashMap;
+import org.neo4j.driver.Driver;
+import org.neo4j.driver.Values;
+import org.neo4j.driver.exceptions.NoSuchRecordException;
+
 import java.util.List;
 import java.util.Map;
 
@@ -40,9 +43,25 @@ public class RatingService {
      */
     // tag::forMovie[]
     public List<Map<String,Object>> forMovie(String id, Params params) {
-        // TODO: Get ratings for a Movie
+        // Open a new database session
+        try (var session = this.driver.session()) {
 
-        return AppUtils.process(ratings,params);
+            // Get ratings for a Movie
+            return session.executeRead(tx -> {
+                String query = String.format("""
+                        MATCH (u:User)-[r:RATED]->(m:Movie {tmdbId: $id})
+                        RETURN r {
+                            .rating,
+                            .timestamp,
+                             user: u { .id, .name }
+                        } AS review
+                        ORDER BY r.`%s` %s
+                        SKIP $skip
+                        LIMIT $limit""", params.sort(Params.Sort.timestamp), params.order());
+                var res = tx.run(query, Values.parameters("id", id, "limit", params.limit(), "skip", params.skip()));
+                return res.list(row -> row.get("review").asMap());
+            });
+        }
     }
     // end::forMovie[]
 
@@ -60,13 +79,37 @@ public class RatingService {
      */
     // tag::add[]
     public Map<String,Object> add(String userId, String movieId, int rating) {
-        // TODO: Convert the native integer into a Neo4j Integer
-        // TODO: Save the rating in the database
-        // TODO: Return movie details and a rating
+        // tag::write[]
+        // Save the rating in the database
 
-        var copy = new HashMap<>(pulpfiction);
-        copy.put("rating",rating);
-        return copy;
+        // Open a new session
+        try (var session = this.driver.session()) {
+
+            // Run the cypher query
+            var movie = session.executeWrite(tx -> {
+                String query = """
+                        MATCH (u:User {userId: $userId})
+                        MATCH (m:Movie {tmdbId: $movieId})
+
+                        MERGE (u)-[r:RATED]->(m)
+                        SET r.rating = $rating, r.timestamp = timestamp()
+
+                        RETURN m { .*, rating: r.rating } AS movie
+                        """;
+                var res = tx.run(query, Values.parameters("userId", userId, "movieId", movieId, "rating", rating));
+                return res.single().get("movie").asMap();
+            });
+            // end::write[]
+
+            // tag::addreturn[]
+            // Return movie details with rating
+            return movie;
+            // end::addreturn[]
+        // tag::throw[]
+        } catch(NoSuchRecordException e) {
+            throw new ValidationException("Movie or user not found to add rating", Map.of("movie", movieId, "user", userId));
+        }
+        // end::throw[]
     }
     // end::add[]
 }

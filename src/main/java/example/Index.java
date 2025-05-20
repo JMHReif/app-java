@@ -5,8 +5,6 @@ import org.neo4j.driver.*;
 // end::import[]
 
 import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
 
 public class Index {
 /**
@@ -56,19 +54,15 @@ scheme        port number
 // end::driver[]
 
 // tag::configuration[]
-    Config config = Config.builder()
-            .withConnectionTimeout(30, TimeUnit.SECONDS)
-            .withMaxConnectionLifetime(30, TimeUnit.MINUTES)
-            .withMaxConnectionPoolSize(10)
-            .withConnectionAcquisitionTimeout(20, TimeUnit.SECONDS)
+    SessionConfig config = SessionConfig.builder()
+            .withDatabase("neo4j")
+            .withDefaultAccessMode(AccessMode.READ)
             .withFetchSize(1000)
-            .withDriverMetrics()
-            .withLogging(Logging.console(Level.INFO))
             .build();
 // end::configuration[]
 
 /**
- * It is considered best practise to inject an instance of the driver.
+ * It is considered best practice to inject an instance of the driver.
  * This way the object can be mocked within unit tests
  */
     public static class MyService {
@@ -103,36 +97,29 @@ scheme        port number
 
     System.out.println("Connection verified!");
 
-    // tag::driver.session[]
-    // Open a new session
-    var session = driver.session();
-    // end::driver.session[]
-
-    // tag::session.run[]
+    // tag::driver.executableQuery[]
     var query = "MATCH () RETURN count(*) AS count";
-    var params = Values.parameters();
 
     // Run a query in an auto-commit transaction
-    var res = session.run(query, params).single().get("count").asLong();
-    // end::session.run[]
-
-    System.out.println(res);
-
-    // tag::session.close[]
-    // Close the session
-    session.close();
-    // end::session.close[]
+    driver.executableQuery(query)
+      .execute()
+      .records()
+      .forEach(r -> {
+        // Print the result
+        System.out.println(r.get("count").asLong());
+      });
+    // end::driver.executableQuery[]
 
     new MyService(driver).method();
 
     driver.close();
   }
-private static void showReadTransaction (Driver driver){
+private static void showReadTransaction(Driver driver){
     try (var session = driver.session()) {
 
       // tag::session.readTransaction[]
       // Run a query within a Read Transaction
-      var res = session.readTransaction(tx -> {
+      var res = session.executeRead(tx -> {
       return tx.run("""
                       MATCH (p:Person)-[:ACTED_IN]->(m:Movie)
                       WHERE m.title = $title // <1>
@@ -147,11 +134,11 @@ private static void showReadTransaction (Driver driver){
     }
   }
 
-private static void showWriteTransaction (Driver driver){
+private static void showWriteTransaction(Driver driver){
     try (var session = driver.session()) {
 
       // tag::session.writeTransaction[]
-      session.writeTransaction(tx -> {
+      session.executeWrite(tx -> {
         return tx.run(
                 "CREATE (p:Person {name: $name})",
                 Values.parameters("name", "Michael")).consume();
@@ -211,7 +198,7 @@ private static Map<String,Object> createPerson(String name) {
         // end::sessionWithArgs[]
 
         // Create a node within a write transaction
-        var res = session.writeTransaction(tx ->
+        var res = session.executeWrite(tx ->
                 tx.run("CREATE (p:Person {name: $name}) RETURN p",
                                 Values.parameters("name", name))
                         .single());

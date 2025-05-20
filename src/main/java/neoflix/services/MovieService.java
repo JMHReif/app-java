@@ -1,13 +1,11 @@
 package neoflix.services;
 
 import neoflix.AppUtils;
-import neoflix.NeoflixApp;
 import neoflix.Params;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.TransactionContext;
 import org.neo4j.driver.Values;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -44,12 +42,40 @@ public class MovieService {
      */
     // tag::all[]
     public List<Map<String,Object>> all(Params params, String userId) {
-        // TODO: Open an Session
-        // TODO: Execute a query in a new Read Transaction
-        // TODO: Get a list of Movies from the Result
-        // TODO: Close the session
+        // Open a new session
+        try (var session = this.driver.session()) {
+            // tag::allcypher[]
+            // Execute a query in a new Read Transaction
+            var movies = session.executeRead(tx -> {
+                // Get an array of IDs for the User's favorite movies
+                var favorites = getUserFavorites(tx, userId);
 
-        return AppUtils.process(popular, params);
+                // Retrieve a list of movies with the
+                // favorite flag appened to the movie's properties
+                Params.Sort sort = params.sort(Params.Sort.title);
+                String query = String.format("""
+                    MATCH (m:Movie)
+                    WHERE m.`%s` IS NOT NULL
+                    RETURN m {
+                      .*,
+                      favorite: m.tmdbId IN $favorites
+                    } AS movie
+                    ORDER BY m.`%s` %s
+                    SKIP $skip
+                    LIMIT $limit
+                    """, sort, sort, params.order());
+                var res= tx.run(query, Values.parameters( "skip", params.skip(), "limit", params.limit(), "favorites",favorites));
+                // tag::allmovies[]
+                // Get a list of Movies from the Result
+                return res.list(row -> row.get("movie").asMap());
+                // end::allmovies[]
+            });
+            // end::allcypher[]
+
+            // tag::return[]
+            return movies;
+            // end::return[]
+        }
     }
     // end::all[]
 
@@ -69,10 +95,32 @@ public class MovieService {
      */
     // tag::findById[]
     public Map<String,Object> findById(String id, String userId) {
-        // TODO: Find a movie by its ID
+        // Find a movie by its ID
         // MATCH (m:Movie {tmdbId: $id})
 
-        return popular.stream().filter(m -> id.equals(m.get("tmdbId"))).findAny().get();
+        // Open a new database session
+        try (var session = this.driver.session()) {
+            // Find a movie by its ID
+            return session.executeRead(tx -> {
+                var favorites = getUserFavorites(tx, userId);
+
+                String query = """
+                                MATCH (m:Movie {tmdbId: $id})
+                                RETURN m {
+                                  .*,
+                                    actors: [ (a)-[r:ACTED_IN]->(m) | a { .*, role: r.role } ],
+                                    directors: [ (d)-[:DIRECTED]->(m) | d { .* } ],
+                                    genres: [ (m)-[:IN_GENRE]->(g) | g { .name }],
+                                    ratingCount: count {(m)<-[:RATED]-() },
+                                    favorite: m.tmdbId IN $favorites
+                                } AS movie
+                                LIMIT 1
+                        """;
+                var res = tx.run(query, Values.parameters("id", id, "favorites", favorites));
+                return res.single().get("movie").asMap();
+            });
+
+        }
     }
     // end::findById[]
 
@@ -96,14 +144,39 @@ public class MovieService {
      */
     // tag::getSimilarMovies[]
     public List<Map<String,Object>> getSimilarMovies(String id, Params params, String userId) {
-        // TODO: Get similar movies based on genres or ratings
+        // Get similar movies based on genres or ratings
+        // MATCH (:Movie {tmdbId: $id})-[:IN_GENRE|ACTED_IN|DIRECTED]->()<-[:IN_GENRE|ACTED_IN|DIRECTED]-(m)
 
-        return AppUtils.process(popular, params).stream()
-                .map(item -> {
-                    Map<String,Object> copy = new HashMap<>(item);
-                    copy.put("score", ((int)(Math.random() * 10000)) / 100.0);
-                    return copy;
-                }).toList();
+        // Open an Session
+        try (var session = this.driver.session()) {
+
+            // Get similar movies based on genres or ratings
+            var movies = session.executeRead(tx -> {
+                var favorites = getUserFavorites(tx, userId);
+                String query = """
+                          MATCH (:Movie {tmdbId: $id})-[:IN_GENRE|ACTED_IN|DIRECTED]->()<-[:IN_GENRE|ACTED_IN|DIRECTED]-(m)
+                          WHERE m.imdbRating IS NOT NULL
+
+                          WITH m, count(*) AS inCommon
+                          WITH m, inCommon, m.imdbRating * inCommon AS score
+                          ORDER BY score DESC
+
+                          SKIP $skip
+                          LIMIT $limit
+
+                          RETURN m {
+                            .*,
+                              score: score,
+                              favorite: m.tmdbId IN $favorites
+                          } AS movie
+                        """;
+                var res = tx.run(query, Values.parameters("id", id, "skip", params.skip(), "limit", params.limit(), "favorites", favorites));
+                // Get a list of Movies from the Result
+                return res.list(row -> row.get("movie").asMap());
+            });
+
+            return movies;
+        }
     }
     // end::getSimilarMovies[]
 
@@ -127,10 +200,36 @@ public class MovieService {
      */
     // tag::getByGenre[]
     public List<Map<String,Object>> byGenre(String name, Params params, String userId) {
-        // TODO: Get Movies in a Genre
+        // Get Movies in a Genre
         // MATCH (m:Movie)-[:IN_GENRE]->(:Genre {name: $name})
 
-        return AppUtils.process(comedyMovies, params);
+        // Open a new session and close at the end
+        try (var session = driver.session()) {
+            // Execute a query in a new Read Transaction
+            return session.executeRead((tx) -> {
+                // Get an array of IDs for the User's favorite movies
+                var favorites = getUserFavorites(tx, userId);
+
+                // Retrieve a list of movies with the
+                // favorite flag append to the movie's properties
+                var result = tx.run(
+                        String.format("""
+                                  MATCH (m:Movie)-[:IN_GENRE]->(:Genre {name: $name})
+                                  WHERE m.`%s` IS NOT NULL
+                                  RETURN m {
+                                    .*,
+                                      favorite: m.tmdbId IN $favorites
+                                  } AS movie
+                                  ORDER BY m.`%s` %s
+                                  SKIP $skip
+                                  LIMIT $limit
+                                """, params.sort(), params.sort(), params.order()),
+                        Values.parameters("skip", params.skip(), "limit", params.limit(),
+                                "favorites", favorites, "name", name));
+                var movies = result.list(row -> row.get("movie").asMap());
+                return movies;
+            });
+        }
     }
     // end::getByGenre[]
 
@@ -153,10 +252,37 @@ public class MovieService {
      */
     // tag::getForActor[]
     public List<Map<String,Object>> getForActor(String actorId, Params params,String userId) {
-        // TODO: Get Movies acted in by a Person
+        // Get Movies acted in by a Person
         // MATCH (:Person {tmdbId: $id})-[:ACTED_IN]->(m:Movie)
 
-        return AppUtils.process(actedInTomHanks, params);
+        // Open a new session
+        try (var session = this.driver.session()) {
+
+            // Execute a query in a new Read Transaction
+            var movies = session.executeRead(tx -> {
+                // Get an array of IDs for the User's favorite movies
+                var favorites = getUserFavorites(tx, userId);
+                var sort = params.sort(Params.Sort.title);
+
+                // Retrieve a list of movies with the
+                // favorite flag appended to the movie's properties
+                String query = String.format("""
+                          MATCH (:Person {tmdbId: $id})-[:ACTED_IN]->(m:Movie)
+                          WHERE m.`%s` IS NOT NULL
+                          RETURN m {
+                            .*,
+                              favorite: m.tmdbId IN $favorites
+                          } AS movie
+                          ORDER BY m.`%s` %s
+                          SKIP $skip
+                          LIMIT $limit
+                        """, sort, sort, params.order());
+                var res = tx.run(query, Values.parameters("skip", params.skip(), "limit", params.limit(), "favorites", favorites, "id", actorId));
+                // Get a list of Movies from the Result
+                return res.list(row -> row.get("movie").asMap());
+            });
+            return movies;
+        }
     }
     // end::getForActor[]
 
@@ -179,10 +305,37 @@ public class MovieService {
      */
     // tag::getForDirector[]
     public List<Map<String,Object>> getForDirector(String directorId, Params params,String userId) {
-        // TODO: Get Movies directed by a Person
+        // Get Movies acted in by a Person
         // MATCH (:Person {tmdbId: $id})-[:DIRECTED]->(m:Movie)
 
-        return AppUtils.process(directedByCoppola, params);
+        // Open a new session
+        try (var session = this.driver.session()) {
+
+            // Execute a query in a new Read Transaction
+            var movies = session.executeRead(tx -> {
+                // Get an array of IDs for the User's favorite movies
+                var favorites = getUserFavorites(tx, userId);
+                var sort = params.sort(Params.Sort.title);
+
+                // Retrieve a list of movies with the
+                // favorite flag appended to the movie's properties
+                String query = String.format("""
+                          MATCH (:Person {tmdbId: $id})-[:DIRECTED]->(m:Movie)
+                          WHERE m.`%s` IS NOT NULL
+                          RETURN m {
+                            .*,
+                              favorite: m.tmdbId IN $favorites
+                          } AS movie
+                          ORDER BY m.`%s` %s
+                          SKIP $skip
+                          LIMIT $limit
+                        """, sort, sort, params.order());
+                var res = tx.run(query, Values.parameters("skip", params.skip(), "limit", params.limit(), "favorites", favorites, "id", directorId));
+                // Get a list of Movies from the Result
+                return res.list(row -> row.get("movie").asMap());
+            });
+            return movies;
+        }
     }
     // end::getForDirector[]
 
@@ -197,9 +350,14 @@ public class MovieService {
      */
     // tag::getUserFavorites[]
     private List<String> getUserFavorites(TransactionContext tx, String userId) {
-        return List.of();
+        // If userId is not defined, return an empty list
+        if (userId == null) return List.of();
+        var favoriteResult =  tx.run("""
+                    MATCH (u:User {userId: $userId})-[:HAS_FAVORITE]->(m)
+                    RETURN m.tmdbId AS id
+                """, Values.parameters("userId",userId));
+        // Extract the `id` value returned by the cypher query
+        return favoriteResult.list(row -> row.get("id").asString());
     }
     // end::getUserFavorites[]
-
-    record Movie() {} // todo
 }
