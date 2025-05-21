@@ -76,17 +76,20 @@ public class PeopleService {
 
             // Get a person from the database
             var person = session.executeRead(tx -> {
-                        String query = """
-                                    MATCH (p:Person {tmdbId: $id})
-                                    RETURN p {
-                                        .*,
-                                        actedCount: count { (p)-[:ACTED_IN]->() },
-                                        directedCount: count { (p)-[:DIRECTED]->() }
-                                    } AS person
-                                """;
-                        var res = tx.run(query, Values.parameters("id", id));
-                        return res.single().get("person").asMap();
-                    });
+                String query = """
+                    MATCH (p:Person {tmdbId: $id})
+                    WITH p,
+                        count { (p)-[:ACTED_IN]->() } AS actedCount,
+                        count { (p)-[:DIRECTED]->() } AS directedCount
+                    RETURN p {
+                        .*, 
+                        actedCount: actedCount, 
+                        directedCount: directedCount
+                    } AS person
+                """;
+                var res = tx.run(query, Values.parameters("id", id));
+                return res.single().get("person").asMap();
+            });
             return person;
         }
     }
@@ -108,13 +111,17 @@ public class PeopleService {
             // Get a list of similar people to the person by their id
             var res = session.executeRead(tx -> tx.run("""
                     MATCH (:Person {tmdbId: $id})-[:ACTED_IN|DIRECTED]->(m)<-[r:ACTED_IN|DIRECTED]-(p)
+                    WITH p,
+                         count { (p)-[:ACTED_IN]->() } AS actedCount,
+                         count { (p)-[:DIRECTED]->() } AS directedCount,
+                         collect(m {.tmdbId, .title, type: type(r)}) AS inCommon
                     RETURN p {
-                        .*,
-                        actedCount: count { (p)-[:ACTED_IN]->() },
-                        directedCount: count { (p)-[:DIRECTED]->() },
-                        inCommon: collect(m {.tmdbId, .title, type: type(r)})
+                        .*, 
+                        actedCount: actedCount, 
+                        directedCount: directedCount, 
+                        inCommon: inCommon
                     } AS person
-                    ORDER BY size(person.inCommon) DESC
+                    ORDER BY size(inCommon) DESC
                     SKIP $skip
                     LIMIT $limit
                     """,Values.parameters("id",id, "skip", params.skip(), "limit", params.limit()))
